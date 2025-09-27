@@ -201,24 +201,15 @@ class MovementCalculator:
         # 玩家速度：(610/68)*15 ≈ 134.6 pixels/second
         player_speed = (610 / 68) * 15
 
-        # 计算普通移动需要的时间
-        normal_move_time = distance / player_speed
-
-        # 判断是否需要冲刺
-        if distance > self.dash_distance * 0.8:  # 如果距离超过冲刺距离的80%
+        # 只有当距离大于冲刺距离时才使用冲刺
+        if distance > self.dash_distance:
             if direction > 0:
                 return ActionType.DASH_RIGHT, 0.2
             else:
                 return ActionType.DASH_LEFT, 0.2
-
-        elif available_time < normal_move_time * 1.2:  # 如果时间紧迫
-            if direction > 0:
-                return ActionType.DASH_RIGHT, 0.2
-            else:
-                return ActionType.DASH_LEFT, 0.2
-
         else:
             # 使用普通移动
+            normal_move_time = distance / player_speed
             if direction > 0:
                 return ActionType.MOVE_RIGHT, normal_move_time
             else:
