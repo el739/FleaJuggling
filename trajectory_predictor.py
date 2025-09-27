@@ -60,9 +60,9 @@ class TrajectoryPredictor:
         self.ball_tracks: Dict[int, BallTrack] = {}  # 存储多个球的轨迹
         self.next_ball_id = 0
         self.current_frame = 0
-        self.max_ball_speed = 10  # 最大球速度（像素/帧）
+        self.max_ball_speed = 50  # 增加最大球速度（像素/帧）
         self.min_stable_frames = 30  # 最少稳定帧数
-        self.max_missing_frames = 5  # 最大丢失帧数
+        self.max_missing_frames = 10  # 增加最大丢失帧数
         self.current_trajectory = None
         self.active_ball_id = -1  # 当前跟踪的球ID
 
@@ -104,8 +104,9 @@ class TrajectoryPredictor:
                 assigned_detections.add(best_match)
 
                 # 检查是否达到稳定状态
-                if len(track.history) >= self.min_stable_frames:
+                if len(track.history) >= self.min_stable_frames and not track.is_stable:
                     track.is_stable = True
+                    print(f"Frame {frame_id}: Ball {ball_id} became STABLE (reached {len(track.history)} frames)")
 
                 # 保持历史记录不超过50帧
                 if len(track.history) > 50:
@@ -138,7 +139,7 @@ class TrajectoryPredictor:
         )
 
         self.ball_tracks[ball_id] = track
-        print(f"Created new ball track {ball_id} at ({x:.1f}, {y:.1f})")
+        print(f"Frame {frame_id}: Created new ball track {ball_id} at ({x:.1f}, {y:.1f})")
 
     def _cleanup_old_tracks(self):
         """清理过期的轨迹"""
@@ -148,7 +149,7 @@ class TrajectoryPredictor:
             # 如果球丢失超过最大帧数，删除轨迹
             if self.current_frame - track.last_update_frame > self.max_missing_frames:
                 to_remove.append(ball_id)
-                print(f"Removing old track {ball_id} (missing for {self.current_frame - track.last_update_frame} frames)")
+                print(f"Frame {self.current_frame}: Removing old track {ball_id} (missing for {self.current_frame - track.last_update_frame} frames)")
 
         for ball_id in to_remove:
             del self.ball_tracks[ball_id]
@@ -173,13 +174,20 @@ class TrajectoryPredictor:
                 best_track = track
 
         if best_track:
+            # 只在切换到不同的球或状态变化时打印
+            if self.active_ball_id != best_track.ball_id:
+                print(f"Frame {self.current_frame}: Active ball switched to {best_track.ball_id} (frames: {len(best_track.history)}, stable: {best_track.is_stable})")
+
             self.active_ball_id = best_track.ball_id
             self.ball_history = best_track.history  # 兼容旧接口
 
             # 重新拟合轨迹
             if len(best_track.history) >= 2:
                 self._fit_trajectory_for_track(best_track)
+
         else:
+            if self.active_ball_id != -1:  # 只在状态改变时打印
+                print(f"Frame {self.current_frame}: No active ball (no stable tracks available)")
             self.active_ball_id = -1
             self.ball_history = []
             self.current_trajectory = None
@@ -220,12 +228,12 @@ class TrajectoryPredictor:
                 'ball_id': track.ball_id
             }
 
-            print(f"Trajectory fitted for ball {track.ball_id}: y = {fixed_a:.6f}x² + {b:.6f}x + {c:.6f}")
+            print(f"Frame {self.current_frame}: Trajectory fitted for ball {track.ball_id}: y = {fixed_a:.6f}x² + {b:.6f}x + {c:.6f}")
             if len(residuals) > 0:
-                print(f"Fit residual: {residuals[0]:.2f}")
+                print(f"Frame {self.current_frame}: Fit residual: {residuals[0]:.2f}")
 
         except np.linalg.LinAlgError:
-            print(f"Failed to fit trajectory for ball {track.ball_id}")
+            print(f"Frame {self.current_frame}: Failed to fit trajectory for ball {track.ball_id}")
             self.current_trajectory = None
 
     def get_ball_direction_for_track(self, track: BallTrack) -> int:
@@ -234,7 +242,7 @@ class TrajectoryPredictor:
             return 0
 
         # 使用最近的几个点计算平均方向
-        recent_points = track.history[-3:] if len(track.history) >= 3 else track.history[-2:]
+        recent_points = track.history[-10:] if len(track.history) >= 3 else track.history[-2:]
 
         direction_sum = 0
         count = 0

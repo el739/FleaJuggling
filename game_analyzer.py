@@ -48,6 +48,7 @@ class GameStateAnalyzer:
         self.current_state = GameState.WAITING
         self.player_position: Optional[PlayerState] = None
         self.last_analysis_time = 0.0
+        self.current_frame = 0  # 添加帧计数器
 
         # 分析参数
         self.min_prediction_confidence = 0.7
@@ -62,6 +63,7 @@ class GameStateAnalyzer:
 
     def update_ball_position(self, x: float, y: float, frame_id: int):
         """更新球位置"""
+        self.current_frame = frame_id  # 更新帧计数器
         self.trajectory_predictor.add_ball_detection(x, y, frame_id)
 
     def analyze_game_state(self) -> GameAnalysis:
@@ -213,7 +215,7 @@ class DecisionMaker:
 
         # 执行颠球动作
         if analysis.should_juggle:
-            print("Decision: JUGGLE!")
+            print(f"Frame {self.analyzer.current_frame}: Decision: JUGGLE!")
             self.controller.juggle_ball()
             action_executed = True
 
@@ -222,7 +224,7 @@ class DecisionMaker:
             current_x = self.analyzer.player_position.x if self.analyzer.player_position else 0
             distance = abs(analysis.target_x - current_x)
 
-            print(f"Decision: MOVE to {analysis.target_x:.1f} (distance: {distance:.1f}, dash: {analysis.use_dash})")
+            print(f"Frame {self.analyzer.current_frame}: Decision: MOVE to {analysis.target_x:.1f} (distance: {distance:.1f}, dash: {analysis.use_dash})")
 
             self.controller.move_to_position(
                 current_x,
