@@ -18,3 +18,8 @@ frame_0216 1324 744
 
 lowest 750
 highest 567
+
+frame_300 0.432 0.376
+frame_315 0.457 0.465
+delta 48 96.12
+delta 107

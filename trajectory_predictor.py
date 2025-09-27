@@ -6,7 +6,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import cv2
 
 @dataclass
@@ -42,45 +42,161 @@ class BallState:
     y: float
     timestamp: float
     frame_id: int
+    ball_id: int = -1  # 球的ID，用于跟踪
+
+@dataclass
+class BallTrack:
+    """球的轨迹跟踪"""
+    ball_id: int
+    history: List[BallState]
+    last_update_frame: int
+    is_stable: bool = False  # 是否是稳定的球（出现超过30帧）
 
 class TrajectoryPredictor:
     """球轨迹预测器"""
 
     def __init__(self, config: GameConfig):
         self.config = config
-        self.ball_history: List[BallState] = []
+        self.ball_tracks: Dict[int, BallTrack] = {}  # 存储多个球的轨迹
+        self.next_ball_id = 0
+        self.current_frame = 0
+        self.max_ball_speed = 10  # 最大球速度（像素/帧）
+        self.min_stable_frames = 30  # 最少稳定帧数
+        self.max_missing_frames = 5  # 最大丢失帧数
         self.current_trajectory = None
+        self.active_ball_id = -1  # 当前跟踪的球ID
 
-    def add_ball_detection(self, x: float, y: float, frame_id: int):
-        """添加球的检测结果"""
+    def add_ball_detections(self, detections: List[Tuple[float, float]], frame_id: int):
+        """添加多个球的检测结果"""
+        self.current_frame = frame_id
+
+        # 为每个检测分配到对应的轨迹
+        assigned_detections = set()
+
+        # 尝试将检测结果分配给现有轨迹
+        for ball_id, track in self.ball_tracks.items():
+            if len(track.history) == 0:
+                continue
+
+            last_pos = track.history[-1]
+            best_match = None
+            best_distance = float('inf')
+
+            for i, (x, y) in enumerate(detections):
+                if i in assigned_detections:
+                    continue
+
+                distance = np.sqrt((x - last_pos.x)**2 + (y - last_pos.y)**2)
+
+                # 检查距离是否在合理范围内
+                if distance <= self.max_ball_speed and distance < best_distance:
+                    best_distance = distance
+                    best_match = i
+
+            # 如果找到匹配，添加到轨迹
+            if best_match is not None:
+                x, y = detections[best_match]
+                timestamp = frame_id * self.config.FRAME_TIME
+                ball_state = BallState(x, y, timestamp, frame_id, ball_id)
+
+                track.history.append(ball_state)
+                track.last_update_frame = frame_id
+                assigned_detections.add(best_match)
+
+                # 检查是否达到稳定状态
+                if len(track.history) >= self.min_stable_frames:
+                    track.is_stable = True
+
+                # 保持历史记录不超过50帧
+                if len(track.history) > 50:
+                    track.history.pop(0)
+
+        # 为未分配的检测创建新轨迹
+        for i, (x, y) in enumerate(detections):
+            if i not in assigned_detections:
+                self._create_new_track(x, y, frame_id)
+
+        # 清理过期的轨迹
+        self._cleanup_old_tracks()
+
+        # 更新当前活跃的轨迹
+        self._update_active_trajectory()
+
+    def _create_new_track(self, x: float, y: float, frame_id: int):
+        """创建新的球轨迹"""
+        ball_id = self.next_ball_id
+        self.next_ball_id += 1
+
         timestamp = frame_id * self.config.FRAME_TIME
-        ball_state = BallState(x, y, timestamp, frame_id)
-        self.ball_history.append(ball_state)
+        ball_state = BallState(x, y, timestamp, frame_id, ball_id)
 
-        # 保持历史记录不超过10帧
-        if len(self.ball_history) > 10:
-            self.ball_history.pop(0)
+        track = BallTrack(
+            ball_id=ball_id,
+            history=[ball_state],
+            last_update_frame=frame_id,
+            is_stable=False
+        )
 
-        # 如果有足够的数据点，拟合轨迹
-        if len(self.ball_history) >= 2:  # 改为2个点即可
-            self._fit_trajectory()
+        self.ball_tracks[ball_id] = track
+        print(f"Created new ball track {ball_id} at ({x:.1f}, {y:.1f})")
 
-    def _fit_trajectory(self):
-        """拟合球的抛物线轨迹"""
-        if len(self.ball_history) < 2:  # 只需要2个点即可拟合线性部分
+    def _cleanup_old_tracks(self):
+        """清理过期的轨迹"""
+        to_remove = []
+
+        for ball_id, track in self.ball_tracks.items():
+            # 如果球丢失超过最大帧数，删除轨迹
+            if self.current_frame - track.last_update_frame > self.max_missing_frames:
+                to_remove.append(ball_id)
+                print(f"Removing old track {ball_id} (missing for {self.current_frame - track.last_update_frame} frames)")
+
+        for ball_id in to_remove:
+            del self.ball_tracks[ball_id]
+
+    def _update_active_trajectory(self):
+        """更新当前活跃的轨迹用于预测"""
+        # 选择最稳定且最新的球进行预测
+        best_track = None
+        best_score = -1
+
+        for ball_id, track in self.ball_tracks.items():
+            if not track.is_stable or len(track.history) < 2:
+                continue
+
+            # 计算评分：稳定性 + 最新性
+            stability_score = min(len(track.history), 50) / 50.0  # 归一化到0-1
+            recency_score = 1.0 / (1 + self.current_frame - track.last_update_frame)
+            total_score = stability_score * 0.7 + recency_score * 0.3
+
+            if total_score > best_score:
+                best_score = total_score
+                best_track = track
+
+        if best_track:
+            self.active_ball_id = best_track.ball_id
+            self.ball_history = best_track.history  # 兼容旧接口
+
+            # 重新拟合轨迹
+            if len(best_track.history) >= 2:
+                self._fit_trajectory_for_track(best_track)
+        else:
+            self.active_ball_id = -1
+            self.ball_history = []
+            self.current_trajectory = None
+
+    def _fit_trajectory_for_track(self, track: BallTrack):
+        """为指定轨迹拟合抛物线"""
+        if len(track.history) < 2:
             return
 
-        # 提取最近的数据点
-        recent_points = self.ball_history[-5:]  # 使用最近5个点
+        # 使用最近的数据点
+        recent_points = track.history[-8:]  # 使用最近8个点
 
         x_coords = np.array([point.x for point in recent_points])
         y_coords = np.array([point.y for point in recent_points])
 
         try:
             # 固定重力系数 a = 1.438131e-02，只拟合 b 和 c
-            # y = ax² + bx + c 变为 y - ax² = bx + c
-            # 这是一个线性方程，可以用最小二乘法求解
-
             fixed_a = 1.438131e-02
 
             # 计算 y - ax²
@@ -100,16 +216,76 @@ class TrajectoryPredictor:
                 'c': c,
                 'fit_time': recent_points[-1].timestamp,
                 'x_range': (min(x_coords), max(x_coords)),
-                'residuals': residuals[0] if len(residuals) > 0 else 0
+                'residuals': residuals[0] if len(residuals) > 0 else 0,
+                'ball_id': track.ball_id
             }
 
-            print(f"Trajectory fitted: y = {fixed_a:.6f}x² + {b:.6f}x + {c:.6f}")
+            print(f"Trajectory fitted for ball {track.ball_id}: y = {fixed_a:.6f}x² + {b:.6f}x + {c:.6f}")
             if len(residuals) > 0:
                 print(f"Fit residual: {residuals[0]:.2f}")
 
         except np.linalg.LinAlgError:
-            print("Failed to fit trajectory - insufficient data variation")
+            print(f"Failed to fit trajectory for ball {track.ball_id}")
             self.current_trajectory = None
+
+    def get_ball_direction_for_track(self, track: BallTrack) -> int:
+        """获取指定轨迹的运动方向"""
+        if len(track.history) < 2:
+            return 0
+
+        # 使用最近的几个点计算平均方向
+        recent_points = track.history[-3:] if len(track.history) >= 3 else track.history[-2:]
+
+        direction_sum = 0
+        count = 0
+
+        for i in range(1, len(recent_points)):
+            dx = recent_points[i].x - recent_points[i-1].x
+            if abs(dx) > 1:  # 忽略微小的变化
+                direction_sum += 1 if dx > 0 else -1
+                count += 1
+
+        if count == 0:
+            return 0
+
+        # 如果方向一致性超过阈值，返回方向
+        avg_direction = direction_sum / count
+        if abs(avg_direction) > 0.5:
+            return 1 if avg_direction > 0 else -1
+        else:
+            return 0
+
+    def _get_ball_direction(self) -> int:
+        """获取当前活跃球的运动方向（兼容旧接口）"""
+        if self.active_ball_id == -1 or self.active_ball_id not in self.ball_tracks:
+            return 0
+
+        return self.get_ball_direction_for_track(self.ball_tracks[self.active_ball_id])
+
+    def get_tracking_info(self) -> dict:
+        """获取跟踪信息"""
+        stable_balls = sum(1 for track in self.ball_tracks.values() if track.is_stable)
+        total_balls = len(self.ball_tracks)
+
+        return {
+            'total_tracks': total_balls,
+            'stable_tracks': stable_balls,
+            'active_ball_id': self.active_ball_id,
+            'current_frame': self.current_frame,
+            'tracks_info': {
+                ball_id: {
+                    'frames': len(track.history),
+                    'stable': track.is_stable,
+                    'last_update': track.last_update_frame
+                }
+                for ball_id, track in self.ball_tracks.items()
+            }
+        }
+
+    # 兼容旧接口的方法
+    def add_ball_detection(self, x: float, y: float, frame_id: int):
+        """添加单个球检测（兼容旧接口）"""
+        self.add_ball_detections([(x, y)], frame_id)
 
     def predict_trajectory_points(self, x_start: float, x_end: float, num_points: int = 100) -> List[Tuple[float, float]]:
         """预测轨迹上的点"""
@@ -225,30 +401,7 @@ class TrajectoryPredictor:
 
     def visualize_trajectory(self, image: np.ndarray, landing_point: Optional[Tuple[float, float]] = None):
         """在图像上可视化轨迹"""
-        if not self.current_trajectory or len(self.ball_history) == 0:
-            return image
-
         img_copy = image.copy()
-
-        # 绘制轨迹
-        current_x = self.ball_history[-1].x
-        ball_direction = self._get_ball_direction()
-
-        # 根据运动方向决定预测范围
-        if ball_direction > 0:  # 向右运动
-            end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
-        elif ball_direction < 0:  # 向左运动
-            end_x = max(current_x - 500, 0)
-        else:  # 方向不确定，两边都画
-            end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
-
-        trajectory_points = self.predict_trajectory_points(
-            current_x, end_x, 50
-        )
-
-        if trajectory_points:
-            points = np.array(trajectory_points, dtype=np.int32)
-            cv2.polylines(img_copy, [points], False, (255, 255, 0), 2)  # 黄色轨迹线
 
         # 绘制可颠区间
         cv2.line(img_copy, (0, self.config.JUGGLE_MIN_Y),
@@ -256,13 +409,54 @@ class TrajectoryPredictor:
         cv2.line(img_copy, (0, self.config.JUGGLE_MAX_Y),
                 (self.config.SCREEN_WIDTH, self.config.JUGGLE_MAX_Y), (0, 255, 255), 2)
 
-        # 显示运动方向
-        if len(self.ball_history) > 0:
-            ball_pos = self.ball_history[-1]
-            direction_text = "→" if ball_direction > 0 else "←" if ball_direction < 0 else "?"
-            cv2.putText(img_copy, f"Direction: {direction_text}",
-                       (int(ball_pos.x) + 20, int(ball_pos.y) - 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        # 绘制所有球的轨迹
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)]  # 不同颜色
+
+        for i, (ball_id, track) in enumerate(self.ball_tracks.items()):
+            if len(track.history) < 2:
+                continue
+
+            color = colors[i % len(colors)]
+
+            # 绘制历史轨迹点
+            for j, point in enumerate(track.history):
+                alpha = 0.3 + 0.7 * j / len(track.history)  # 渐变透明度
+                radius = 3 if track.is_stable else 2
+                cv2.circle(img_copy, (int(point.x), int(point.y)), radius, color, -1)
+
+            # 标注球ID和状态
+            last_point = track.history[-1]
+            status = "STABLE" if track.is_stable else f"UNSTABLE({len(track.history)})"
+            cv2.putText(img_copy, f"Ball {ball_id}: {status}",
+                       (int(last_point.x) + 10, int(last_point.y) - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+        # 绘制活跃球的预测轨迹
+        if self.active_ball_id != -1 and self.current_trajectory:
+            active_track = self.ball_tracks.get(self.active_ball_id)
+            if active_track:
+                current_x = active_track.history[-1].x
+                ball_direction = self.get_ball_direction_for_track(active_track)
+
+                # 根据运动方向决定预测范围
+                if ball_direction > 0:  # 向右运动
+                    end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
+                elif ball_direction < 0:  # 向左运动
+                    end_x = max(current_x - 500, 0)
+                else:  # 方向不确定，两边都画
+                    end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
+
+                trajectory_points = self.predict_trajectory_points(current_x, end_x, 50)
+
+                if trajectory_points:
+                    points = np.array(trajectory_points, dtype=np.int32)
+                    cv2.polylines(img_copy, [points], False, (255, 255, 0), 3)  # 粗黄色轨迹线
+
+                # 显示运动方向
+                direction_text = "→" if ball_direction > 0 else "←" if ball_direction < 0 else "?"
+                cv2.putText(img_copy, f"Active Ball {self.active_ball_id} Direction: {direction_text}",
+                           (int(current_x) + 20, int(current_x) - 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
         # 绘制预测落点
         if landing_point:
@@ -273,6 +467,12 @@ class TrajectoryPredictor:
             cv2.putText(img_copy, f"Landing: ({landing_point[0]:.1f}, {landing_point[1]:.1f})",
                        (int(landing_point[0]) + 15, int(landing_point[1]) - 15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+        # 显示跟踪统计信息
+        tracking_info = self.get_tracking_info()
+        info_text = f"Tracks: {tracking_info['total_tracks']}, Stable: {tracking_info['stable_tracks']}"
+        cv2.putText(img_copy, info_text, (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         return img_copy
 

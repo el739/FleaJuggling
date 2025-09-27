@@ -70,8 +70,16 @@ class GameStateAnalyzer:
         analysis = GameAnalysis()
 
         # 检查是否有足够的数据
-        if not self.player_position or not self.trajectory_predictor.ball_history:
+        if not self.player_position:
             analysis.confidence = 0.0
+            return analysis
+
+        # 检查是否有活跃的稳定球
+        tracking_info = self.trajectory_predictor.get_tracking_info()
+        if tracking_info['active_ball_id'] == -1 or tracking_info['stable_tracks'] == 0:
+            # 没有稳定的球，继续等待
+            self.current_state = GameState.WAITING
+            analysis.confidence = 0.1
             return analysis
 
         # 预测球的落点
@@ -148,10 +156,13 @@ class GameStateAnalyzer:
 
     def get_detailed_status(self) -> dict:
         """获取详细的状态信息"""
+        # 获取轨迹跟踪信息
+        tracking_info = self.trajectory_predictor.get_tracking_info()
+
         status = {
             'state': self.current_state.value,
             'player_position': None,
-            'ball_count': len(self.trajectory_predictor.ball_history),
+            'tracking_info': tracking_info,
             'has_trajectory': self.trajectory_predictor.current_trajectory is not None,
             'last_analysis': self.last_analysis_time
         }
