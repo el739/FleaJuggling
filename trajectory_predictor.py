@@ -132,6 +132,11 @@ class TrajectoryPredictor:
         if not self.current_trajectory:
             return None
 
+        # 判断球的运动方向
+        ball_direction = self._get_ball_direction()
+        if ball_direction == 0:  # 无法确定方向
+            return None
+
         a, b, c = self.current_trajectory['a'], self.current_trajectory['b'], self.current_trajectory['c']
 
         # 找到y = JUGGLE_MIN_Y 和 y = JUGGLE_MAX_Y 时的x坐标
@@ -147,17 +152,53 @@ class TrajectoryPredictor:
                 x1 = (-b + sqrt_d) / (2 * a)
                 x2 = (-b - sqrt_d) / (2 * a)
 
-                # 选择合理的解（通常是较大的x值，表示未来的位置）
+                # 根据球的运动方向选择合理的解
+                current_x = self.ball_history[-1].x
+
                 for x in [x1, x2]:
                     if 0 <= x <= self.config.SCREEN_WIDTH:
-                        landing_points.append((x, target_y))
+                        # 检查这个解是否符合运动方向
+                        if ball_direction > 0 and x > current_x:  # 向右运动，选择右侧的解
+                            landing_points.append((x, target_y))
+                        elif ball_direction < 0 and x < current_x:  # 向左运动，选择左侧的解
+                            landing_points.append((x, target_y))
 
-        # 返回最近的合理落点
+        # 返回最近的合理落点（按时间先后，选择最先到达的点）
         if landing_points:
-            # 选择x坐标最大的点（最接近未来的位置）
-            return max(landing_points, key=lambda p: p[0])
+            # 如果有多个点，选择距离当前位置最近的（最先到达的）
+            current_x = self.ball_history[-1].x
+            return min(landing_points, key=lambda p: abs(p[0] - current_x))
 
         return None
+
+    def _get_ball_direction(self) -> int:
+        """获取球的运动方向
+        返回: 1(向右), -1(向左), 0(无法确定)
+        """
+        if len(self.ball_history) < 2:
+            return 0
+
+        # 使用最近的几个点计算平均方向
+        recent_points = self.ball_history[-3:] if len(self.ball_history) >= 3 else self.ball_history[-2:]
+
+        direction_sum = 0
+        count = 0
+
+        for i in range(1, len(recent_points)):
+            dx = recent_points[i].x - recent_points[i-1].x
+            if abs(dx) > 1:  # 忽略微小的变化
+                direction_sum += 1 if dx > 0 else -1
+                count += 1
+
+        if count == 0:
+            return 0
+
+        # 如果方向一致性超过阈值，返回方向
+        avg_direction = direction_sum / count
+        if abs(avg_direction) > 0.5:  # 阈值可调整
+            return 1 if avg_direction > 0 else -1
+        else:
+            return 0
 
     def estimate_time_to_landing(self, landing_x: float) -> Optional[float]:
         """估计球到达落点的时间"""
@@ -191,8 +232,18 @@ class TrajectoryPredictor:
 
         # 绘制轨迹
         current_x = self.ball_history[-1].x
+        ball_direction = self._get_ball_direction()
+
+        # 根据运动方向决定预测范围
+        if ball_direction > 0:  # 向右运动
+            end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
+        elif ball_direction < 0:  # 向左运动
+            end_x = max(current_x - 500, 0)
+        else:  # 方向不确定，两边都画
+            end_x = min(current_x + 500, self.config.SCREEN_WIDTH)
+
         trajectory_points = self.predict_trajectory_points(
-            current_x, min(current_x + 500, self.config.SCREEN_WIDTH), 50
+            current_x, end_x, 50
         )
 
         if trajectory_points:
@@ -204,6 +255,14 @@ class TrajectoryPredictor:
                 (self.config.SCREEN_WIDTH, self.config.JUGGLE_MIN_Y), (0, 255, 255), 2)  # 青色线
         cv2.line(img_copy, (0, self.config.JUGGLE_MAX_Y),
                 (self.config.SCREEN_WIDTH, self.config.JUGGLE_MAX_Y), (0, 255, 255), 2)
+
+        # 显示运动方向
+        if len(self.ball_history) > 0:
+            ball_pos = self.ball_history[-1]
+            direction_text = "→" if ball_direction > 0 else "←" if ball_direction < 0 else "?"
+            cv2.putText(img_copy, f"Direction: {direction_text}",
+                       (int(ball_pos.x) + 20, int(ball_pos.y) - 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
         # 绘制预测落点
         if landing_point:

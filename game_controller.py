@@ -7,8 +7,6 @@ import time
 import threading
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
-import keyboard
 import win32api
 import win32con
 
