@@ -1,0 +1,20 @@
+dash_start 676 722
+dash_end 938 725
+dash_distance 264
+
+flea1 1322 282
+flea2 1264 361
+flea3 1226 466
+flea4 1181 643
+
+Fitted quadratic: y = a*x^2 + b*x + c 
+a = 1.438131e-02 
+b = -3.855779e+01 
+c = 2.612136e+04
+
+frame_0148 714 738
+frame_0216 1324 744
+68 frames 610 pix
+
+lowest 750
+highest 567
