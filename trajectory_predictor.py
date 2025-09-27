@@ -62,32 +62,50 @@ class TrajectoryPredictor:
             self.ball_history.pop(0)
 
         # 如果有足够的数据点，拟合轨迹
-        if len(self.ball_history) >= 3:
+        if len(self.ball_history) >= 2:  # 改为2个点即可
             self._fit_trajectory()
 
     def _fit_trajectory(self):
         """拟合球的抛物线轨迹"""
-        if len(self.ball_history) < 3:
+        if len(self.ball_history) < 2:  # 只需要2个点即可拟合线性部分
             return
 
         # 提取最近的数据点
         recent_points = self.ball_history[-5:]  # 使用最近5个点
 
-        x_coords = [point.x for point in recent_points]
-        y_coords = [point.y for point in recent_points]
+        x_coords = np.array([point.x for point in recent_points])
+        y_coords = np.array([point.y for point in recent_points])
 
         try:
-            # 拟合二次方程 y = ax² + bx + c
-            coeffs = np.polyfit(x_coords, y_coords, 2)
+            # 固定重力系数 a = 1.438131e-02，只拟合 b 和 c
+            # y = ax² + bx + c 变为 y - ax² = bx + c
+            # 这是一个线性方程，可以用最小二乘法求解
+
+            fixed_a = 1.438131e-02
+
+            # 计算 y - ax²
+            y_adjusted = y_coords - fixed_a * x_coords * x_coords
+
+            # 构建线性系统 [x, 1] * [b, c] = y_adjusted
+            A = np.column_stack([x_coords, np.ones(len(x_coords))])
+
+            # 最小二乘法求解 b 和 c
+            coeffs_bc, residuals, rank, s = np.linalg.lstsq(A, y_adjusted, rcond=None)
+
+            b, c = coeffs_bc
+
             self.current_trajectory = {
-                'a': coeffs[0],
-                'b': coeffs[1],
-                'c': coeffs[2],
+                'a': fixed_a,
+                'b': b,
+                'c': c,
                 'fit_time': recent_points[-1].timestamp,
-                'x_range': (min(x_coords), max(x_coords))
+                'x_range': (min(x_coords), max(x_coords)),
+                'residuals': residuals[0] if len(residuals) > 0 else 0
             }
 
-            print(f"Trajectory fitted: y = {coeffs[0]:.6f}x² + {coeffs[1]:.6f}x + {coeffs[2]:.6f}")
+            print(f"Trajectory fitted: y = {fixed_a:.6f}x² + {b:.6f}x + {c:.6f}")
+            if len(residuals) > 0:
+                print(f"Fit residual: {residuals[0]:.2f}")
 
         except np.linalg.LinAlgError:
             print("Failed to fit trajectory - insufficient data variation")

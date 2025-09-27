@@ -49,6 +49,11 @@ class JugglingAI:
         self.show_visualization = True
         self.current_frame = None
 
+        # 录制功能
+        self.record_video = False
+        self.video_writer = None
+        self.output_video_path = None
+
         print("Juggling AI initialized successfully!")
 
     def capture_screen(self) -> Optional[np.ndarray]:
@@ -130,6 +135,36 @@ class JugglingAI:
 
         return vis_frame
 
+    def start_recording(self, output_path: str = None):
+        """开始录制预览窗口"""
+        if self.video_writer is not None:
+            print("Recording is already active")
+            return
+
+        if output_path is None:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = f"juggling_ai_recording_{timestamp}.mp4"
+
+        self.output_video_path = output_path
+
+        # 设置录制参数 (预览窗口大小: 960x540)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.video_writer = cv2.VideoWriter(output_path, fourcc, self.config.FPS, (960, 540))
+        self.record_video = True
+
+        print(f"Started recording to: {output_path}")
+
+    def stop_recording(self):
+        """停止录制"""
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
+            self.record_video = False
+            print(f"Recording saved to: {self.output_video_path}")
+            self.output_video_path = None
+        else:
+            print("No active recording to stop")
+
     def _draw_status_info(self, frame: np.ndarray):
         """绘制状态信息"""
         y_offset = 30
@@ -210,10 +245,26 @@ class JugglingAI:
                 display_frame = cv2.resize(vis_frame, (960, 540))
                 cv2.imshow('Juggling AI', display_frame)
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                # 录制视频
+                if self.record_video and self.video_writer is not None:
+                    self.video_writer.write(display_frame)
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
                     print("Quit requested")
                     self.stop()
                     break
+                elif key == ord('r'):
+                    if not self.record_video:
+                        self.start_recording()
+                    else:
+                        self.stop_recording()
+                elif key == ord('s'):
+                    # 保存当前帧截图
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    screenshot_path = f"debug_screenshot_{timestamp}.png"
+                    cv2.imwrite(screenshot_path, display_frame)
+                    print(f"Screenshot saved: {screenshot_path}")
 
             self.frame_count += 1
 
@@ -250,6 +301,10 @@ class JugglingAI:
         """停止AI控制器"""
         print("Stopping Juggling AI...")
         self.is_running = False
+
+        # 停止录制
+        if self.record_video:
+            self.stop_recording()
 
         # 停止所有动作
         self.controller.emergency_stop()
@@ -295,6 +350,8 @@ def main():
 Controls:")
         print("- Press ENTER to start the AI")
         print("- Press 'q' in the visualization window to stop")
+        print("- Press 'r' in the visualization window to start/stop recording")
+        print("- Press 's' in the visualization window to save screenshot")
         print("- Press Ctrl+C to emergency stop")
 
         input("\
