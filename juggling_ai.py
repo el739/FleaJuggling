@@ -6,7 +6,6 @@
 
 import time
 from pathlib import Path
-from typing import Optional, Tuple, List
 
 # Import the new modular system
 from juggling_ai_modular import JugglingAI as ModularJugglingAI

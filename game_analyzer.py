@@ -117,16 +117,6 @@ class GameStateAnalyzer:
 
             analysis.use_dash = action_type in [ActionType.DASH_LEFT, ActionType.DASH_RIGHT]
 
-            # 检查时间是否充足
-            required_time = move_time + self.reaction_time
-            if time_to_landing > required_time:
-                analysis.confidence = 0.8
-                self.current_state = GameState.MOVING_TO_POSITION
-            else:
-                # 时间不够，尝试冲刺
-                analysis.use_dash = True
-                analysis.confidence = 0.6
-
         else:
             # 已经在合适的位置
             analysis.should_move = False
@@ -154,11 +144,11 @@ class GameStateAnalyzer:
         # 检查玩家和球的横坐标差值是否在允许范围内
         if self.player_position:
             x_diff = abs(self.player_position.x - ball_x)
-            if x_diff > self.config.player.juggle_position_tolerance:  # 从配置获取横坐标差值限制
+            if x_diff > self.config.player.juggle_position_tolerance:
                 return False
 
         # 时间判断：预留一定的反应时间
-        juggle_timing_window = self.config.analysis.juggle_timing_window  # 从配置获取颠球时机窗口
+        juggle_timing_window = self.config.analysis.juggle_timing_window
 
         return time_to_landing <= juggle_timing_window
 

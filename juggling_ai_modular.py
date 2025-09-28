@@ -47,7 +47,7 @@ class JugglingAI:
     def _initialize_components(self, model_path: str):
         """Initialize all system components"""
         # Detection system
-        self.detector = ObjectDetector(model_path, self.config.detection)
+        self.detector = ObjectDetector(model_path, self.config.detection, self.config.screen)
 
         # Vision system
         self.screen_capture = ScreenCapture()

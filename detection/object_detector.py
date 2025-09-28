@@ -8,7 +8,8 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from ultralytics import YOLO
-from config import DetectionConfig
+from config import DetectionConfig, ScreenConfig
+from image_preprocessor import ImagePreprocessor
 
 class DetectionResult:
     """Detection result container"""
@@ -23,15 +24,23 @@ class DetectionResult:
 class ObjectDetector:
     """YOLO-based object detector for players and balls"""
 
-    def __init__(self, model_path: str = None, config: DetectionConfig = None):
+    def __init__(self, model_path: str = None, config: DetectionConfig = None, screen_config: ScreenConfig = None):
         """
         Initialize the object detector
 
         Args:
             model_path: Path to YOLO model weights (overrides config if provided)
             config: Detection configuration
+            screen_config: Screen configuration for image preprocessing
         """
         self.config = config or DetectionConfig()
+        self.screen_config = screen_config
+
+        # Initialize image preprocessor for performance optimization
+        if self.screen_config:
+            self.preprocessor = ImagePreprocessor(self.screen_config)
+        else:
+            self.preprocessor = None
 
         # Use provided model path or config default
         model_path = model_path or self.config.model_path
@@ -45,6 +54,8 @@ class ObjectDetector:
         self.detection_times = []
 
         print(f"ObjectDetector initialized with model: {model_path}")
+        if self.preprocessor:
+            print("Image preprocessing enabled for performance optimization")
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
         """
@@ -58,8 +69,13 @@ class ObjectDetector:
         """
         start_time = time.time()
 
+        # Preprocess frame for better performance
+        detection_frame = frame
+        if self.preprocessor:
+            detection_frame = self.preprocessor.preprocess_for_detection(frame)
+
         # Run YOLO detection
-        results = self.model(frame, conf=self.config.confidence_threshold, verbose=False)
+        results = self.model(detection_frame, conf=self.config.confidence_threshold, verbose=False)
 
         player_pos = None
         ball_positions = []
@@ -72,9 +88,13 @@ class ObjectDetector:
                 x1, y1, x2, y2, conf, cls = box
                 cls = int(cls)
 
-                # Calculate center point
+                # Calculate center point in processed frame coordinates
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
+
+                # Convert coordinates back to original frame if preprocessing was used
+                if self.preprocessor:
+                    center_x, center_y = self.preprocessor.scale_coordinates_to_original((center_x, center_y))
 
                 if cls == self.config.player_class_id:  # player
                     player_pos = (center_x, center_y)
@@ -105,9 +125,15 @@ class ObjectDetector:
 
     def get_statistics(self) -> Dict:
         """Get detector statistics"""
-        return {
+        stats = {
             'avg_detection_time_ms': self.get_average_detection_time(),
             'confidence_threshold': self.config.confidence_threshold,
             'model_loaded': self.model is not None,
             'recent_detections': len(self.detection_times)
         }
+
+        # Add preprocessing information if available
+        if self.preprocessor:
+            stats['preprocessing'] = self.preprocessor.get_performance_info()
+
+        return stats

@@ -37,8 +37,28 @@ class ScreenConfig:
     fps: int = 15
     frame_time: float = field(init=False)
 
+    # Image preprocessing for performance optimization
+    # Crop region (x, y, width, height) - set to None to disable cropping
+    crop_region: tuple = (279, 164, 1618, 941)  # Example: (0, 100, 1920, 880) to crop top/bottom
+
+    # Scale factor for model input (0.0-1.0) - reduces image size for faster processing
+    scale_factor: float = 0.5  # 0.5 means 50% of original size
+
+    # Model input dimensions (after crop and scale)
+    model_input_width: int = field(init=False)
+    model_input_height: int = field(init=False)
+
     def __post_init__(self):
         self.frame_time = 1.0 / self.fps
+
+        # Calculate model input dimensions
+        if self.crop_region:
+            crop_width, crop_height = self.crop_region[2], self.crop_region[3]
+        else:
+            crop_width, crop_height = self.width, self.height
+
+        self.model_input_width = int(crop_width * self.scale_factor)
+        self.model_input_height = int(crop_height * self.scale_factor)
 
 @dataclass
 class JuggleZoneConfig:
@@ -130,7 +150,7 @@ class AnalysisConfig:
     confidence_ready: float = 0.9
 
     # Timing
-    juggle_timing_window: float = 0.15  # seconds
+    juggle_timing_window: float = 0.15  # seconds，在最高和最低区间画一条线，球过此线时发出被颠信号，此值越高则线越高
 
 @dataclass
 class VisualizationConfig:
