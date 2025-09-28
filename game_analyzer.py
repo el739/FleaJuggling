@@ -132,7 +132,7 @@ class GameStateAnalyzer:
             analysis.should_move = False
 
             # 检查是否应该颠球
-            if self._should_juggle_now(landing_y, time_to_landing):
+            if self._should_juggle_now(landing_x, landing_y, time_to_landing):
                 analysis.should_juggle = True
                 analysis.confidence = 0.9
                 self.current_state = GameState.READY_TO_JUGGLE
@@ -145,11 +145,17 @@ class GameStateAnalyzer:
 
         return analysis
 
-    def _should_juggle_now(self, ball_y: float, time_to_landing: float) -> bool:
+    def _should_juggle_now(self, ball_x: float, ball_y: float, time_to_landing: float) -> bool:
         """判断是否应该现在颠球"""
         # 球必须在可颠区间内
         if not (self.config.JUGGLE_MIN_Y <= ball_y <= self.config.JUGGLE_MAX_Y):
             return False
+
+        # 检查玩家和球的横坐标差值是否在允许范围内
+        if self.player_position:
+            x_diff = abs(self.player_position.x - ball_x)
+            if x_diff > 60:  # 横坐标差值绝对值不能大于60像素
+                return False
 
         # 时间判断：预留一定的反应时间
         juggle_timing_window = 0.15  # 颠球时机窗口（秒）

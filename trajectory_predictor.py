@@ -65,6 +65,8 @@ class TrajectoryPredictor:
         self.max_missing_frames = 10  # 增加最大丢失帧数
         self.current_trajectory = None
         self.active_ball_id = -1  # 当前跟踪的球ID
+        self.last_landing_y = None  # 记录上一次落点的Y坐标
+        self.last_landing_point = None  # 记录上一次的落点
 
     def add_ball_detections(self, detections: List[Tuple[float, float]], frame_id: int):
         """添加多个球的检测结果"""
@@ -347,11 +349,30 @@ class TrajectoryPredictor:
                         elif ball_direction < 0 and x < current_x:  # 向左运动，选择左侧的解
                             landing_points.append((x, target_y))
 
-        # 返回最近的合理落点（按时间先后，选择最先到达的点）
+        # 返回最近的合理落点，但优先考虑之前的落点类型
         if landing_points:
-            # 如果有多个点，选择距离当前位置最近的（最先到达的）
+            # 如果有多个点，智能选择落点
             current_x = self.ball_history[-1].x
-            return min(landing_points, key=lambda p: abs(p[0] - current_x))
+
+            # 将落点按Y坐标分组
+            high_line_points = [p for p in landing_points if p[1] == self.config.JUGGLE_MIN_Y]  # 最高线
+            low_line_points = [p for p in landing_points if p[1] == self.config.JUGGLE_MAX_Y]   # 最低线
+
+            # 如果之前的落点在最高线，且现在也有最高线的落点，优先选择最高线
+            if (self.last_landing_y == self.config.JUGGLE_MIN_Y and high_line_points):
+                selected_point = min(high_line_points, key=lambda p: abs(p[0] - current_x))
+            # 如果之前的落点在最低线，且现在也有最低线的落点，优先选择最低线
+            elif (self.last_landing_y == self.config.JUGGLE_MAX_Y and low_line_points):
+                selected_point = min(low_line_points, key=lambda p: abs(p[0] - current_x))
+            # 其他情况，选择距离最近的点
+            else:
+                selected_point = min(landing_points, key=lambda p: abs(p[0] - current_x))
+
+            # 更新记录的落点信息
+            self.last_landing_y = selected_point[1]
+            self.last_landing_point = selected_point
+
+            return selected_point
 
         return None
 
