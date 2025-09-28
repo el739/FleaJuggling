@@ -19,7 +19,7 @@ class GameConfig:
     FRAME_TIME = 1.0 / FPS  # 每帧时间（秒）
 
     # 可颠球区间
-    JUGGLE_MIN_Y = 567  # 最高位置（y坐标较小）
+    JUGGLE_MIN_Y = 465  # 最高位置（y坐标较小）
     JUGGLE_MAX_Y = 750  # 最低位置（y坐标较大）
 
     # 玩家参数
@@ -61,8 +61,8 @@ class TrajectoryPredictor:
         self.next_ball_id = 0
         self.current_frame = 0
         self.max_ball_speed = 50  # 增加最大球速度（像素/帧）
-        self.min_stable_frames = 30  # 最少稳定帧数
-        self.max_missing_frames = 10  # 增加最大丢失帧数
+        self.min_stable_frames = 15  # 最少稳定帧数
+        self.max_missing_frames = 5  # 增加最大丢失帧数
         self.current_trajectory = None
         self.active_ball_id = -1  # 当前跟踪的球ID
         self.last_landing_y = None  # 记录上一次落点的Y坐标

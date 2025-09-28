@@ -17,7 +17,7 @@ frame_0216 1324 744
 68 frames 610 pix
 
 lowest 750
-highest 567
+highest 567 465
 
 frame_300 0.432 0.376
 frame_315 0.457 0.465
