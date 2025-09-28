@@ -10,13 +10,15 @@ from typing import Optional
 class VideoRecorder:
     """Handles video recording of the AI gameplay"""
 
-    def __init__(self):
+    def __init__(self, config=None):
         """Initialize video recorder"""
+        self.config = config
         self.video_writer: Optional[cv2.VideoWriter] = None
         self.is_recording = False
         self.output_path: Optional[str] = None
-        self.frame_size = (960, 540)  # Default display size
-        self.fps = 15
+        # 从配置获取帧大小和FPS，如果没有配置则使用默认值
+        self.frame_size = getattr(config, 'frame_size', (960, 540)) if config else (960, 540)  # Default display size
+        self.fps = getattr(config, 'default_fps', 15) if config else 15
 
     def start_recording(self, output_path: Optional[str] = None) -> bool:
         """

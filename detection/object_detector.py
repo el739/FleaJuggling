@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from ultralytics import YOLO
+from config import DetectionConfig
 
 class DetectionResult:
     """Detection result container"""
@@ -22,24 +23,26 @@ class DetectionResult:
 class ObjectDetector:
     """YOLO-based object detector for players and balls"""
 
-    def __init__(self, model_path: str = "runs/detect/train/weights/best.pt",
-                 confidence_threshold: float = 0.5):
+    def __init__(self, model_path: str = None, config: DetectionConfig = None):
         """
         Initialize the object detector
 
         Args:
-            model_path: Path to YOLO model weights
-            confidence_threshold: Minimum confidence for detections
+            model_path: Path to YOLO model weights (overrides config if provided)
+            config: Detection configuration
         """
+        self.config = config or DetectionConfig()
+
+        # Use provided model path or config default
+        model_path = model_path or self.config.model_path
+
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
         self.model = YOLO(model_path)
-        self.confidence_threshold = confidence_threshold
 
         # Performance tracking
         self.detection_times = []
-        self.max_history_length = 30
 
         print(f"ObjectDetector initialized with model: {model_path}")
 
@@ -56,7 +59,7 @@ class ObjectDetector:
         start_time = time.time()
 
         # Run YOLO detection
-        results = self.model(frame, conf=self.confidence_threshold, verbose=False)
+        results = self.model(frame, conf=self.config.confidence_threshold, verbose=False)
 
         player_pos = None
         ball_positions = []
@@ -73,10 +76,10 @@ class ObjectDetector:
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
 
-                if cls == 0:  # hero (player)
+                if cls == self.config.player_class_id:  # player
                     player_pos = (center_x, center_y)
                     confidence_scores['player'] = conf
-                elif cls == 1:  # ordinary (ball)
+                elif cls == self.config.ball_class_id:  # ball
                     ball_positions.append((center_x, center_y))
                     if 'balls' not in confidence_scores:
                         confidence_scores['balls'] = []
@@ -91,7 +94,7 @@ class ObjectDetector:
     def _update_performance_metrics(self, detection_time: float):
         """Update performance tracking metrics"""
         self.detection_times.append(detection_time)
-        if len(self.detection_times) > self.max_history_length:
+        if len(self.detection_times) > self.config.max_detection_history:
             self.detection_times.pop(0)
 
     def get_average_detection_time(self) -> float:
@@ -104,7 +107,7 @@ class ObjectDetector:
         """Get detector statistics"""
         return {
             'avg_detection_time_ms': self.get_average_detection_time(),
-            'confidence_threshold': self.confidence_threshold,
+            'confidence_threshold': self.config.confidence_threshold,
             'model_loaded': self.model is not None,
             'recent_detections': len(self.detection_times)
         }

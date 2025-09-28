@@ -50,10 +50,10 @@ class GameStateAnalyzer:
         self.last_analysis_time = 0.0
         self.current_frame = 0  # 添加帧计数器
 
-        # 分析参数
-        self.min_prediction_confidence = 0.7
-        self.reaction_time = 0.1  # 反应时间（秒）
-        self.position_tolerance = 30  # 位置容差（像素）
+        # 从配置文件获取分析参数
+        self.min_prediction_confidence = config.analysis.min_prediction_confidence
+        self.reaction_time = config.control.reaction_time  # 反应时间（秒）
+        self.position_tolerance = config.player.position_tolerance  # 位置容差（像素）
 
         print("Game State Analyzer initialized")
 
@@ -154,11 +154,11 @@ class GameStateAnalyzer:
         # 检查玩家和球的横坐标差值是否在允许范围内
         if self.player_position:
             x_diff = abs(self.player_position.x - ball_x)
-            if x_diff > 60:  # 横坐标差值绝对值不能大于60像素
+            if x_diff > self.config.player.juggle_position_tolerance:  # 从配置获取横坐标差值限制
                 return False
 
         # 时间判断：预留一定的反应时间
-        juggle_timing_window = 0.15  # 颠球时机窗口（秒）
+        juggle_timing_window = self.config.analysis.juggle_timing_window  # 从配置获取颠球时机窗口
 
         return time_to_landing <= juggle_timing_window
 

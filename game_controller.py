@@ -9,6 +9,10 @@ from enum import Enum
 from dataclasses import dataclass
 import win32api
 import win32con
+from config import get_config
+
+# 获取全局配置实例
+config = get_config()
 
 class ActionType(Enum):
     """动作类型"""
@@ -37,13 +41,8 @@ class GameController:
         self.executor_thread = None
         self.stop_flag = False
 
-        # 按键映射
-        self.key_mapping = {
-            'a': 0x41,       # A键
-            'd': 0x44,       # D键
-            'b': 0x42,       # B键
-            'ctrl': 0xA2,    # 左Ctrl键
-        }
+        # 从配置文件获取按键映射
+        self.key_mapping = config.control.key_mapping
 
         print("Game Controller initialized")
 
@@ -59,9 +58,11 @@ class GameController:
         """执行简单动作（非持续性）"""
         if action_type == ActionType.JUGGLE:
             print("Executing JUGGLE action")
+            self.press_key(self.key_mapping['w'])
             self.press_key(self.key_mapping['b'])
             time.sleep(duration)
             self.release_key(self.key_mapping['b'])
+            self.release_key(self.key_mapping['w'])
 
         elif action_type == ActionType.DASH_LEFT:
             print("Executing DASH_LEFT action")
@@ -131,16 +132,15 @@ class GameController:
 
     def calculate_movement_time(self, distance: float, action_type: ActionType) -> float:
         """计算移动到指定距离需要的时间"""
-        # 基于提供的参数：610 pix per 68 frames at 15fps
-        player_speed = (610 / 68) * 15  # 像素/秒
+        # 从配置获取玩家速度
+        player_speed = config.player.move_speed
 
         if action_type in [ActionType.MOVE_LEFT, ActionType.MOVE_RIGHT]:
             return abs(distance) / player_speed
 
         elif action_type in [ActionType.DASH_LEFT, ActionType.DASH_RIGHT]:
-            # 冲刺是固定距离264像素，时间估算
-            dash_time = 0.3  # 假设冲刺需要0.3秒
-            return dash_time
+            # 从配置获取冲刺时间
+            return config.player.dash_duration
 
         return 0.0
 
@@ -189,8 +189,9 @@ class GameController:
 class MovementCalculator:
     """移动计算器 - 计算最优移动策略"""
 
-    def __init__(self, dash_distance: float = 264):
-        self.dash_distance = dash_distance
+    def __init__(self, dash_distance: float = None):
+        # 从配置获取冲刺距离，如果未提供则使用默认值
+        self.dash_distance = dash_distance or config.player.dash_distance
 
     def calculate_optimal_movement(self, current_x: float, target_x: float,
                                  available_time: float) -> tuple[ActionType, float]:
@@ -198,15 +199,15 @@ class MovementCalculator:
         distance = abs(target_x - current_x)
         direction = 1 if target_x > current_x else -1
 
-        # 玩家速度：(610/68)*15 ≈ 134.6 pixels/second
-        player_speed = (610 / 68) * 15
+        # 从配置获取玩家速度
+        player_speed = config.player.move_speed
 
         # 只有当距离大于冲刺距离时才使用冲刺
         if distance > self.dash_distance:
             if direction > 0:
-                return ActionType.DASH_RIGHT, 0.2
+                return ActionType.DASH_RIGHT, config.control.dash_duration
             else:
-                return ActionType.DASH_LEFT, 0.2
+                return ActionType.DASH_LEFT, config.control.dash_duration
         else:
             # 使用普通移动
             normal_move_time = distance / player_speed

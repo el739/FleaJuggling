@@ -13,7 +13,7 @@ from typing import Optional
 from detection import ObjectDetector
 from vision import ScreenCapture, Visualizer, VideoRecorder
 from monitoring import PerformanceMonitor
-from trajectory_predictor import GameConfig
+from config import GameConfig
 from game_analyzer import GameStateAnalyzer, DecisionMaker
 from game_controller import GameController
 
@@ -47,12 +47,16 @@ class JugglingAI:
     def _initialize_components(self, model_path: str):
         """Initialize all system components"""
         # Detection system
-        self.detector = ObjectDetector(model_path)
+        self.detector = ObjectDetector(model_path, self.config.detection)
 
         # Vision system
         self.screen_capture = ScreenCapture()
-        self.visualizer = Visualizer(self.config)
-        self.video_recorder = VideoRecorder()
+        self.visualizer = Visualizer(
+            self.config.visualization,
+            self.config.juggle_zone,
+            self.config.screen
+        )
+        self.video_recorder = VideoRecorder(self.config.recording)
 
         # Game logic
         self.analyzer = GameStateAnalyzer(self.config)

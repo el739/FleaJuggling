@@ -9,9 +9,17 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 import cv2
 
+# Import from the new config system but maintain backward compatibility
+try:
+    from config import GameConfig, TrajectoryConfig, ScreenConfig, JuggleZoneConfig, PlayerConfig
+    _has_new_config = True
+except ImportError:
+    _has_new_config = False
+
+# Legacy config for backward compatibility
 @dataclass
 class GameConfig:
-    """游戏配置参数"""
+    """游戏配置参数 - Legacy version for backward compatibility"""
     # 屏幕和采样
     SCREEN_WIDTH = 1920
     SCREEN_HEIGHT = 1080
@@ -60,9 +68,10 @@ class TrajectoryPredictor:
         self.ball_tracks: Dict[int, BallTrack] = {}  # 存储多个球的轨迹
         self.next_ball_id = 0
         self.current_frame = 0
-        self.max_ball_speed = 50  # 增加最大球速度（像素/帧）
-        self.min_stable_frames = 15  # 最少稳定帧数
-        self.max_missing_frames = 5  # 增加最大丢失帧数
+        # 从配置获取轨迹预测参数
+        self.max_ball_speed = config.trajectory.max_ball_speed  # 最大球速度（像素/帧）
+        self.min_stable_frames = config.trajectory.min_stable_frames  # 最少稳定帧数
+        self.max_missing_frames = config.trajectory.max_missing_frames  # 最大丢失帧数
         self.current_trajectory = None
         self.active_ball_id = -1  # 当前跟踪的球ID
         self.last_landing_y = None  # 记录上一次落点的Y坐标
@@ -200,14 +209,14 @@ class TrajectoryPredictor:
             return
 
         # 使用最近的数据点
-        recent_points = track.history[-8:]  # 使用最近8个点
+        recent_points = track.history[-self.config.trajectory.recent_points_count:]  # 从配置获取最近点数
 
         x_coords = np.array([point.x for point in recent_points])
         y_coords = np.array([point.y for point in recent_points])
 
         try:
-            # 固定重力系数 a = 1.438131e-02，只拟合 b 和 c
-            fixed_a = 1.438131e-02
+            # 固定重力系数，从配置获取
+            fixed_a = self.config.trajectory.gravity_coefficient
 
             # 计算 y - ax²
             y_adjusted = y_coords - fixed_a * x_coords * x_coords
@@ -244,14 +253,14 @@ class TrajectoryPredictor:
             return 0
 
         # 使用最近的几个点计算平均方向
-        recent_points = track.history[-10:] if len(track.history) >= 3 else track.history[-2:]
+        recent_points = track.history[-self.config.trajectory.direction_history_count:] if len(track.history) >= 3 else track.history[-2:]
 
         direction_sum = 0
         count = 0
 
         for i in range(1, len(recent_points)):
             dx = recent_points[i].x - recent_points[i-1].x
-            if abs(dx) > 1:  # 忽略微小的变化
+            if abs(dx) > self.config.trajectory.direction_threshold:  # 从配置获取方向阈值
                 direction_sum += 1 if dx > 0 else -1
                 count += 1
 
@@ -260,7 +269,7 @@ class TrajectoryPredictor:
 
         # 如果方向一致性超过阈值，返回方向
         avg_direction = direction_sum / count
-        if abs(avg_direction) > 0.5:
+        if abs(avg_direction) > self.config.trajectory.direction_threshold:  # 从配置获取方向阈值
             return 1 if avg_direction > 0 else -1
         else:
             return 0
@@ -391,7 +400,7 @@ class TrajectoryPredictor:
 
         for i in range(1, len(recent_points)):
             dx = recent_points[i].x - recent_points[i-1].x
-            if abs(dx) > 1:  # 忽略微小的变化
+            if abs(dx) > self.config.trajectory.min_movement_threshold:  # 从配置获取最小移动阈值
                 direction_sum += 1 if dx > 0 else -1
                 count += 1
 
@@ -400,7 +409,7 @@ class TrajectoryPredictor:
 
         # 如果方向一致性超过阈值，返回方向
         avg_direction = direction_sum / count
-        if abs(avg_direction) > 0.5:  # 阈值可调整
+        if abs(avg_direction) > self.config.trajectory.direction_threshold:  # 从配置获取方向阈值
             return 1 if avg_direction > 0 else -1
         else:
             return 0

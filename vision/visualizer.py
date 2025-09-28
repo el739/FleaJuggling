@@ -8,27 +8,26 @@ import time
 import numpy as np
 from typing import Optional, Tuple, List, Dict
 from detection import DetectionResult
-from trajectory_predictor import TrajectoryPredictor, GameConfig
+from trajectory_predictor import TrajectoryPredictor
+from config import VisualizationConfig, JuggleZoneConfig, ScreenConfig
 
 class Visualizer:
     """Handles visualization of game state and detection results"""
 
-    def __init__(self, config: GameConfig):
+    def __init__(self, vis_config: VisualizationConfig = None,
+                 zone_config: JuggleZoneConfig = None,
+                 screen_config: ScreenConfig = None):
         """
         Initialize visualizer
 
         Args:
-            config: Game configuration
+            vis_config: Visualization configuration
+            zone_config: Juggle zone configuration
+            screen_config: Screen configuration
         """
-        self.config = config
-        self.colors = {
-            'player': (0, 255, 0),      # Green
-            'ball': (255, 0, 0),        # Blue
-            'trajectory': (255, 255, 0), # Yellow
-            'landing': (0, 0, 255),     # Red
-            'juggle_zone': (0, 255, 255), # Cyan
-            'text': (255, 255, 255)     # White
-        }
+        self.vis_config = vis_config or VisualizationConfig()
+        self.zone_config = zone_config or JuggleZoneConfig()
+        self.screen_config = screen_config or ScreenConfig()
 
     def draw_detection_results(self, frame: np.ndarray, detection: DetectionResult) -> np.ndarray:
         """
@@ -46,16 +45,16 @@ class Visualizer:
         # Draw player
         if detection.player_pos:
             x, y = detection.player_pos
-            cv2.circle(vis_frame, (int(x), int(y)), 15, self.colors['player'], -1)
+            cv2.circle(vis_frame, (int(x), int(y)), self.vis_config.player_radius, self.vis_config.colors['player'], -1)
             cv2.putText(vis_frame, "PLAYER", (int(x) + 20, int(y)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.colors['player'], 2)
+                       self.vis_config.font, self.vis_config.font_scale, self.vis_config.colors['player'], self.vis_config.text_thickness)
 
         # Draw balls
         for i, ball_pos in enumerate(detection.ball_positions):
             x, y = ball_pos
-            cv2.circle(vis_frame, (int(x), int(y)), 10, self.colors['ball'], -1)
+            cv2.circle(vis_frame, (int(x), int(y)), self.vis_config.ball_radius, self.vis_config.colors['ball'], -1)
             cv2.putText(vis_frame, f"BALL_{i}", (int(x) + 15, int(y) - 15),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['ball'], 2)
+                       self.vis_config.font, self.vis_config.font_scale, self.vis_config.colors['ball'], self.vis_config.text_thickness)
 
         return vis_frame
 
@@ -64,12 +63,12 @@ class Visualizer:
         vis_frame = frame.copy()
 
         # Draw juggle zone lines
-        cv2.line(vis_frame, (0, self.config.JUGGLE_MIN_Y),
-                (self.config.SCREEN_WIDTH, self.config.JUGGLE_MIN_Y),
-                self.colors['juggle_zone'], 2)
-        cv2.line(vis_frame, (0, self.config.JUGGLE_MAX_Y),
-                (self.config.SCREEN_WIDTH, self.config.JUGGLE_MAX_Y),
-                self.colors['juggle_zone'], 2)
+        cv2.line(vis_frame, (0, self.zone_config.min_y),
+                (self.screen_config.width, self.zone_config.min_y),
+                self.zone_config.zone_line_color, self.zone_config.zone_line_thickness)
+        cv2.line(vis_frame, (0, self.zone_config.max_y),
+                (self.screen_config.width, self.zone_config.max_y),
+                self.zone_config.zone_line_color, self.zone_config.zone_line_thickness)
 
         return vis_frame
 
@@ -105,8 +104,8 @@ class Visualizer:
             Frame with status info drawn
         """
         vis_frame = frame.copy()
-        y_offset = 60
-        line_height = 25
+        y_offset = self.vis_config.text_y_offset
+        line_height = self.vis_config.text_line_height
 
         # Prepare info lines
         info_lines = []
@@ -138,7 +137,7 @@ class Visualizer:
         for i, line in enumerate(info_lines):
             y_pos = y_offset + i * line_height
             cv2.putText(vis_frame, line, (10, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.colors['text'], 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, self.vis_config.font_scale, self.vis_config.colors['text'], self.vis_config.text_thickness)
 
         return vis_frame
 
